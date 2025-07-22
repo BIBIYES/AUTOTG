@@ -23,18 +23,15 @@ class ReportScheduler:
             return
             
         schedule_time_str = self.report_config.get('schedule_time', '23:00')
-        timezone_str = self.report_config.get('timezone', 'UTC')
+        timezone_str = self.report_config.get('timezone', 'UTC') # Get timezone as a string
         
         try:
-            # 使用正确的时区来调度
-            tz = ZoneInfo(timezone_str)
             logger.info(f"每日报告已计划在每天 {schedule_time_str} ({timezone_str}) 执行。")
             
-            # 创建一个偏函数，将config和db对象绑定到任务函数上
             job_func = partial(run_daily_report, self.config, self.db)
             
-            # 设置定时任务
-            schedule.every().day.at(schedule_time_str, tz).do(job_func)
+            # Pass the timezone string directly to the 'at' method
+            schedule.every().day.at(schedule_time_str, timezone_str).do(job_func)
             
         except Exception as e:
             logger.error(f"设置定时报告任务失败: {e}")
