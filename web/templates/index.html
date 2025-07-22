@@ -314,7 +314,8 @@
           let hourlyActivityChart = null; // New chart instance
 
           // Socket.IO
-          const socket = io("http://127.0.0.1:5000");
+          // 移除硬编码的URL，让它自动连接到当前域
+          const socket = io();
 
           socket.on("connect", () => {
             console.log("Connected to WebSocket server");
