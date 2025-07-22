@@ -143,7 +143,7 @@ class MessageFormatter:
                 'message_id': message.id,
                 'text': message.text or "",  # 确保text不为None
                 'date': message.date.isoformat(),
-                'raw_data': str(message.to_dict())
+                # 'raw_data': str(message.to_dict()) # Removed
             }
             
             # 添加聊天信息
@@ -242,5 +242,5 @@ class MessageFormatter:
             return {
                 'message_id': getattr(message, 'id', None),
                 'text': getattr(message, 'text', ''),
-                'raw_data': str(message)
+                # 'raw_data': str(message) # Removed
             } 

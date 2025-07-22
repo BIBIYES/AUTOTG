@@ -56,7 +56,7 @@ class DailyReporter:
             logger.error(f"生成词云失败: {e}")
             return None
 
-    def _send_email(self, image_data):
+    def _send_email(self, image_data, chat_title="Overall"):
         """发送包含词云图片的邮件"""
         if not image_data:
             logger.warning("没有词云图片数据，邮件未发送。")
@@ -70,10 +70,11 @@ class DailyReporter:
         msg = MIMEMultipart()
         msg['From'] = self.smtp_config.get('username')
         msg['To'] = recipient
-        msg['Subject'] = f"Telegram每日词云报告 - {datetime.now().strftime('%Y-%m-%d')}"
+        msg['Subject'] = f"Telegram每日词云报告 - {chat_title} - {datetime.now().strftime('%Y-%m-%d')}"
         
         # 邮件正文
-        msg.attach(MIMEText('您好，\n\n这是今日的Telegram聊天词云报告。\n\n祝好！', 'plain', 'utf-8'))
+        body = f"您好，\n\n这是群组/会话【{chat_title}】今日的Telegram聊天词云报告。\n\n祝好！"
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
         
         # 添加图片附件
         image = MIMEImage(image_data, _subtype='png', name='wordcloud.png')
@@ -94,11 +95,30 @@ class DailyReporter:
     def run_report(self):
         """执行报告生成和发送的完整流程"""
         logger.info("开始生成每日词云报告...")
-        chat_ids = self.report_config.get('target_chat_ids')
-        text_data = self.db.get_messages_for_today(chat_ids=chat_ids if chat_ids else None)
+        target_chat_ids = self.report_config.get('target_chat_ids')
+
+        if target_chat_ids:
+            # 为每个目标chat_id生成并发送报告
+            for chat_id in target_chat_ids:
+                logger.info(f"正在为 Chat ID: {chat_id} 生成报告...")
+                chat_title = self.db.get_chat_title(chat_id)
+                text_data = self.db.get_messages_for_today(chat_id=chat_id)
+                
+                if text_data:
+                    image_bytes = self._generate_wordcloud(text_data)
+                    self._send_email(image_bytes, chat_title=chat_title)
+                else:
+                    logger.info(f"Chat ID: {chat_id} (标题: {chat_title}) 今日无有效消息，跳过报告。")
+        else:
+            # 如果没有配置目标，则按原逻辑处理所有消息
+            logger.info("未配置目标Chat ID，将为所有会话生成一份总报告。")
+            text_data = self.db.get_messages_for_today()
+            if text_data:
+                image_bytes = self._generate_wordcloud(text_data)
+                self._send_email(image_bytes, chat_title="所有消息汇总")
+            else:
+                logger.info("今日无任何有效消息，跳过总报告。")
         
-        image_bytes = self._generate_wordcloud(text_data)
-        self._send_email(image_bytes)
         logger.info("每日报告任务执行完毕。")
 
 def run_daily_report(config, db):

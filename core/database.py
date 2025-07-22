@@ -35,27 +35,54 @@ class Database:
             self.cursor = self.conn.cursor()
             
             # 创建消息表
-            self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message_id INTEGER,
-                chat_id INTEGER,
-                chat_title TEXT,
-                chat_type TEXT,
-                sender_id INTEGER,
-                sender_username TEXT,
-                sender_first_name TEXT,
-                sender_last_name TEXT,
-                text TEXT,
-                date TEXT,
-                media_type TEXT,
-                is_forwarded BOOLEAN,
-                forward_from TEXT,
-                reply_to_msg_id INTEGER,
-                raw_data TEXT,
-                created_at TEXT
-            )
-            ''')
+            # 旧的建表语句（保留，以防万一）
+            # CREATE TABLE IF NOT EXISTS messages ( ... raw_data TEXT, ... )
+            
+            # 检查raw_data列是否存在
+            self.cursor.execute("PRAGMA table_info(messages)")
+            columns = [column['name'] for column in self.cursor.fetchall()]
+            if 'raw_data' in columns:
+                logger.info("检测到旧的 'raw_data' 列，正在尝试移除...")
+                try:
+                    # 创建一个没有raw_data的新表
+                    self.cursor.execute('''
+                    CREATE TABLE messages_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, chat_id INTEGER,
+                        chat_title TEXT, chat_type TEXT, sender_id INTEGER, sender_username TEXT,
+                        sender_first_name TEXT, sender_last_name TEXT, text TEXT, date TEXT,
+                        media_type TEXT, is_forwarded BOOLEAN, forward_from TEXT,
+                        reply_to_msg_id INTEGER, created_at TEXT
+                    )
+                    ''')
+                    # 复制数据
+                    self.cursor.execute('''
+                    INSERT INTO messages_new SELECT 
+                        id, message_id, chat_id, chat_title, chat_type, sender_id, sender_username,
+                        sender_first_name, sender_last_name, text, date, media_type, is_forwarded,
+                        forward_from, reply_to_msg_id, created_at 
+                    FROM messages
+                    ''')
+                    # 删除旧表
+                    self.cursor.execute("DROP TABLE messages")
+                    # 重命名新表
+                    self.cursor.execute("ALTER TABLE messages_new RENAME TO messages")
+                    self.conn.commit()
+                    logger.info("'raw_data' 列已成功移除。")
+                except Exception as e:
+                    logger.error(f"移除 'raw_data' 列失败，可能需要手动处理数据库: {e}")
+                    # 如果失败，可能需要回滚
+                    self.conn.rollback()
+            else:
+                 # 如果列不存在，则创建新表（不含raw_data）
+                self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, chat_id INTEGER,
+                    chat_title TEXT, chat_type TEXT, sender_id INTEGER, sender_username TEXT,
+                    sender_first_name TEXT, sender_last_name TEXT, text TEXT, date TEXT,
+                    media_type TEXT, is_forwarded BOOLEAN, forward_from TEXT,
+                    reply_to_msg_id INTEGER, created_at TEXT
+                )
+                ''')
             
             # 创建索引
             self.cursor.execute('''
@@ -102,8 +129,8 @@ class Database:
                 message_id, chat_id, chat_title, chat_type, sender_id,
                 sender_username, sender_first_name, sender_last_name, text,
                 date, media_type, is_forwarded, forward_from, reply_to_msg_id,
-                raw_data, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 message_data.get('message_id'),
                 message_data.get('chat_id'),
@@ -119,7 +146,6 @@ class Database:
                 message_data.get('is_forwarded'),
                 message_data.get('forward_from'),
                 message_data.get('reply_to_msg_id'),
-                message_data.get('raw_data'),
                 now
             ))
             
@@ -224,12 +250,12 @@ class Database:
             logger.error(f"获取消息列表失败: {e}")
             return [] 
 
-    def get_messages_for_today(self, chat_ids=None):
+    def get_messages_for_today(self, chat_id=None):
         """
-        获取今天的所有消息文本，可按chat_id过滤。
+        获取指定chat_id或所有聊天今天的消息文本。
         
         Args:
-            chat_ids (list, optional): 要包含的chat_id列表。如果为None或空，则获取所有消息。
+            chat_id (int, optional): 单个chat_id。如果为None，则获取所有消息。
             
         Returns:
             str: 拼接好的所有消息文本。
@@ -237,7 +263,6 @@ class Database:
         try:
             today = datetime.now().strftime('%Y-%m-%d')
             
-            # Updated query to exclude unsupported media and also check for null/empty media_type
             query = """
                 SELECT text FROM messages 
                 WHERE 
@@ -248,10 +273,9 @@ class Database:
             """
             params = [today]
             
-            if chat_ids:
-                placeholders = ','.join('?' for _ in chat_ids)
-                query += f" AND chat_id IN ({placeholders})"
-                params.extend(chat_ids)
+            if chat_id:
+                query += " AND chat_id = ?"
+                params.append(chat_id)
             
             self.cursor.execute(query, tuple(params))
             
@@ -259,5 +283,24 @@ class Database:
             return " ".join(all_texts)
             
         except Exception as e:
-            logger.error(f"获取今日消息失败: {e}")
-            return "" 
+            logger.error(f"获取今日消息失败 (chat_id: {chat_id}): {e}")
+            return ""
+
+    def get_chat_title(self, chat_id):
+        """
+        根据chat_id获取最新的聊天标题。
+        
+        Args:
+            chat_id (int): 聊天ID。
+            
+        Returns:
+            str: 聊天标题，如果找不到则返回chat_id本身。
+        """
+        try:
+            query = "SELECT chat_title FROM messages WHERE chat_id = ? ORDER BY date DESC LIMIT 1"
+            self.cursor.execute(query, (chat_id,))
+            row = self.cursor.fetchone()
+            return row['chat_title'] if row and row['chat_title'] else str(chat_id)
+        except Exception as e:
+            logger.error(f"获取聊天标题失败 (chat_id: {chat_id}): {e}")
+            return str(chat_id) 
