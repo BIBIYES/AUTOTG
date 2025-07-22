@@ -40,6 +40,8 @@ class MessageFormatter:
             sender_name = MessageFormatter._get_sender_name(message_data)
             message_text = message_data.get('text', '')
             date_str = message_data.get('date', '')
+            chat_id = message_data.get('chat_id')
+            sender_id = message_data.get('sender_id')
             
             # 设置颜色
             chat_color = MessageFormatter.CHAT_TYPE_COLORS.get(chat_type, Back.WHITE) + Fore.BLACK
@@ -95,11 +97,12 @@ class MessageFormatter:
                 reply_info = f"{Fore.MAGENTA}[回复消息: {message_data.get('reply_to_msg_id')}]{Style.RESET_ALL} "
             
             # 构建完整的消息
+            id_info = f"ChatID: {chat_id} | SenderID: {sender_id}"
             message_lines = [
                 f"┌─{header}─{date_info}",
                 f"│ {sender_info}:",
                 f"│ {media_info}{forward_info}{reply_info}{message_text}",
-                f"└{'─' * 50}"
+                f"└─[ {id_info} ]{'─' * (33 - len(id_info))}"
             ]
             
             return '\n'.join(message_lines)

@@ -26,7 +26,10 @@ class Tgbot:
         self.db = None
         self.message_formatter = None
         self.running = False
-        self.socketio = None # Add this line
+        self.socketio = None
+        # Load filter lists from config
+        self.filter_chat_ids = config.get('filter_chat_ids', [])
+        self.filter_sender_ids = config.get('filter_sender_ids', [])
         
         # 设置日志级别
         log_level = config.get('log_level', 'INFO')
@@ -126,6 +129,15 @@ class Tgbot:
             """处理新消息"""
             try:
                 message = event.message
+                
+                # --- NEW: Filtering Logic ---
+                if message.chat_id in self.filter_chat_ids:
+                    logger.info(f"消息来自被过滤的群组 {message.chat_id}，已忽略。")
+                    return
+                if message.sender_id in self.filter_sender_ids:
+                    logger.info(f"消息来自被过滤的用户 {message.sender_id}，已忽略。")
+                    return
+                # --- END NEW ---
                 
                 # 提取消息数据
                 if self.message_formatter:
