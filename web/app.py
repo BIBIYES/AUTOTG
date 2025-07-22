@@ -52,7 +52,10 @@ def get_messages(session_id):
     """根据会话ID获取消息"""
     try:
         database = get_db()
-        messages = database.get_messages(chat_id=session_id, limit=200) # 最近200条
+        offset = request.args.get('offset', 0, type=int)
+        limit = request.args.get('limit', 50, type=int)
+        
+        messages = database.get_messages(chat_id=session_id, limit=limit, offset=offset)
         return jsonify(messages)
     except Exception as e:
         logging.error(f"获取消息失败: {e}")
@@ -115,6 +118,33 @@ def user_ranking():
         return jsonify(ranking)
     except Exception as e:
         logging.error(f"获取用户发言排行失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/stats/group_ranking', methods=['GET'])
+def group_ranking():
+    """获取过去7天群组消息量排行"""
+    try:
+        database = get_db()
+        # 筛选出群组/频道类型的消息 (chat_id通常是负数)
+        # 并按消息数量排序
+        query = """
+            SELECT
+                chat_id,
+                chat_title,
+                COUNT(*) as count
+            FROM messages
+            WHERE
+                date >= date('now', '-7 days')
+                AND (chat_type = 'group' OR chat_type = 'supergroup' OR chat_type = 'channel')
+            GROUP BY chat_id, chat_title
+            ORDER BY count DESC
+            LIMIT 10
+        """
+        database.cursor.execute(query)
+        ranking = [{'name': row['chat_title'], 'count': row['count']} for row in database.cursor.fetchall()]
+        return jsonify(ranking)
+    except Exception as e:
+        logging.error(f"获取群组消息量排行失败: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/stats/message_type_distribution', methods=['GET'])

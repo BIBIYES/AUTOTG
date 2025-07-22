@@ -151,7 +151,18 @@
                 {{ activeSessionTitle }}
               </h2>
             </header>
-            <div id="message-container" class="flex-1 p-4 overflow-y-auto">
+            <div
+              id="message-container"
+              class="flex-1 p-4 overflow-y-auto"
+              @scroll="handleScroll"
+            >
+              <!-- Loading indicator -->
+              <div v-if="isLoadingMoreMessages" class="py-2 text-center">
+                <div
+                  class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]"
+                ></div>
+                <div class="mt-2 text-gray-600 text-sm">加载更多消息...</div>
+              </div>
               <!-- Messages will be rendered here -->
               <div
                 v-for="message in messages"
@@ -257,7 +268,7 @@
           class="p-6 h-full overflow-y-auto"
         >
           <h2 class="text-2xl font-bold mb-4">数据分析面板</h2>
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
             <div class="bg-white p-4 rounded-lg shadow">
               <h3 class="text-lg font-semibold mb-2">7日消息频率</h3>
               <div
@@ -269,6 +280,14 @@
               <h3 class="text-lg font-semibold mb-2">7日用户发言排行</h3>
               <div
                 id="user-ranking-chart"
+                style="width: 100%; height: 300px"
+              ></div>
+            </div>
+            <!-- New Group Ranking Chart -->
+            <div class="bg-white p-4 rounded-lg shadow">
+              <h3 class="text-lg font-semibold mb-2">7日群组活跃度排行</h3>
+              <div
+                id="group-ranking-chart"
                 style="width: 100%; height: 300px"
               ></div>
             </div>
@@ -306,12 +325,17 @@
           const activeView = ref("chat"); // 'chat', 'search', 'dashboard'
           const searchQuery = ref("");
           const searchResults = ref([]);
+          const isLoadingMoreMessages = ref(false);
+          const messageOffset = ref(0);
+          const messageLimit = ref(50);
+          const noMoreMessages = ref(false);
 
           // ECharts instances
           let dailyFrequencyChart = null;
           let userRankingChart = null;
           let messageTypeChart = null; // New chart instance
           let hourlyActivityChart = null; // New chart instance
+          let groupRankingChart = null; // New chart instance
 
           // Socket.IO
           // 移除硬编码的URL，让它自动连接到当前域
@@ -391,15 +415,87 @@
 
             activeSessionId.value = sessionId;
             activeSessionTitle.value = session ? session.title : "加载中...";
+            // 重置消息加载状态
+            messageOffset.value = 0;
+            noMoreMessages.value = false;
             try {
-              const response = await fetch(`/api/messages/${sessionId}`);
+              const response = await fetch(
+                `/api/messages/${sessionId}?offset=${messageOffset.value}&limit=${messageLimit.value}`
+              );
               if (!response.ok) throw new Error("Network response was not ok");
               const data = await response.json();
               messages.value = data;
               scrollToBottom();
+              // 更新offset以便下次加载更多
+              messageOffset.value += data.length;
             } catch (error) {
               console.error("获取消息失败:", error);
               messages.value = []; // 清空消息以防显示旧数据
+            }
+          };
+
+          // 新增加载更多消息的方法
+          const loadMoreMessages = async () => {
+            if (
+              isLoadingMoreMessages.value ||
+              noMoreMessages.value ||
+              !activeSessionId.value
+            )
+              return;
+
+            isLoadingMoreMessages.value = true;
+            try {
+              const response = await fetch(
+                `/api/messages/${activeSessionId.value}?offset=${messageOffset.value}&limit=${messageLimit.value}`
+              );
+              if (!response.ok) throw new Error("Network response was not ok");
+              const data = await response.json();
+
+              if (data.length > 0) {
+                // 记录当前第一条消息的位置
+                const firstMessage = document.querySelector(
+                  '#message-container > div[id^="message-"]'
+                );
+                const firstMessagePosition = firstMessage
+                  ? firstMessage.offsetTop
+                  : 0;
+
+                // 将新消息添加到列表前面
+                messages.value = [...data, ...messages.value];
+
+                // 更新offset以便下次加载更多
+                messageOffset.value += data.length;
+
+                // 确保滚动位置保持在用户之前看到的消息处
+                nextTick(() => {
+                  const messageContainer =
+                    document.getElementById("message-container");
+                  if (messageContainer && firstMessage) {
+                    const newFirstMessagePosition = firstMessage.offsetTop;
+                    messageContainer.scrollTop =
+                      newFirstMessagePosition - firstMessagePosition;
+                  }
+                });
+              } else {
+                noMoreMessages.value = true;
+                console.log("没有更多历史消息了");
+              }
+            } catch (error) {
+              console.error("加载更多消息失败:", error);
+            } finally {
+              isLoadingMoreMessages.value = false;
+            }
+          };
+
+          // 处理滚动事件
+          const handleScroll = (e) => {
+            // 当滚动到距离顶部小于50px时，加载更多消息
+            if (
+              e.target.scrollTop < 50 &&
+              !isLoadingMoreMessages.value &&
+              !noMoreMessages.value
+            ) {
+              loadMoreMessages();
             }
           };
 
@@ -435,6 +531,12 @@
             );
             if (hourlyActivityEl && !hourlyActivityChart) {
               hourlyActivityChart = echarts.init(hourlyActivityEl);
+            }
+            const groupRankingEl = document.getElementById(
+              "group-ranking-chart"
+            );
+            if (groupRankingEl && !groupRankingChart) {
+              groupRankingChart = echarts.init(groupRankingEl);
             }
           };
 
@@ -475,6 +577,15 @@
                 );
                 const hourlyData = await hourlyResponse.json();
                 updateHourlyActivityChart(hourlyData);
+              }
+
+              // Fetch group ranking data
+              if (groupRankingChart) {
+                const groupRankResponse = await fetch(
+                  "/api/stats/group_ranking"
+                );
+                const groupRankData = await groupRankResponse.json();
+                updateGroupRankingChart(groupRankData);
               }
             } catch (error) {
               console.error("获取仪表盘数据失败:", error);
@@ -569,6 +680,35 @@
             hourlyActivityChart.setOption(option);
           };
 
+          // New Chart Update Function for Group Ranking
+          const updateGroupRankingChart = (data) => {
+            const option = {
+              tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+              grid: { left: "30%" }, // Adjust grid to prevent label overlap
+              yAxis: {
+                type: "category",
+                data: data.map((item) => item.name).reverse(),
+                axisLabel: {
+                  formatter: function (value) {
+                    return value.length > 15
+                      ? value.slice(0, 15) + "..."
+                      : value;
+                  },
+                },
+              },
+              xAxis: { type: "value" },
+              series: [
+                {
+                  name: "消息数",
+                  data: data.map((item) => item.count).reverse(),
+                  type: "bar",
+                  itemStyle: { color: "#91CC75" },
+                },
+              ],
+            };
+            groupRankingChart.setOption(option);
+          };
+
           const formatTimestamp = (timestamp) => {
             return dayjs(timestamp).format("YYYY-MM-DD HH:mm:ss");
           };
@@ -649,10 +789,11 @@
             highlightKeyword,
             scrollToMessage,
             getAvatarInitial,
+            isLoadingMoreMessages,
+            handleScroll,
           };
         },
       }).mount("#app");
     </script>
   </body>
 </html>
- 
