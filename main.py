@@ -36,9 +36,9 @@ def signal_handler(sig, frame):
 
 def run_web_app():
     """在eventlet服务器中运行Flask应用"""
-    logger.info("启动Web服务器于 http://127.0.0.1:5000")
+    logger.info("启动Web服务器于 http://0.0.0.0:5000")
     # 使用eventlet作为WebSocket服务器
-    socketio.run(app, host='127.0.0.1', port=5000, log_output=False, debug=False)
+    socketio.run(app, host='0.0.0.0', port=5000, log_output=False, debug=False)
 
 def main():
     global bot
