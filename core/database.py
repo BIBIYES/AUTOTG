@@ -1,0 +1,225 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import os
+import sqlite3
+import logging
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+class Database:
+    """数据库管理类"""
+    
+    def __init__(self, db_file='data.db'):
+        """
+        初始化数据库管理器
+        
+        Args:
+            db_file: 数据库文件路径，默认为'data.db'
+        """
+        self.db_file = db_file
+        self.conn = None
+        self.cursor = None
+        self.init_db()
+    
+    def init_db(self):
+        """初始化数据库连接和表结构"""
+        try:
+            db_exists = os.path.exists(self.db_file)
+            
+            # 创建连接
+            self.conn = sqlite3.connect(self.db_file, check_same_thread=False)
+            # 设置行工厂为字典
+            self.conn.row_factory = sqlite3.Row
+            self.cursor = self.conn.cursor()
+            
+            # 创建消息表
+            self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id INTEGER,
+                chat_id INTEGER,
+                chat_title TEXT,
+                chat_type TEXT,
+                sender_id INTEGER,
+                sender_username TEXT,
+                sender_first_name TEXT,
+                sender_last_name TEXT,
+                text TEXT,
+                date TEXT,
+                media_type TEXT,
+                is_forwarded BOOLEAN,
+                forward_from TEXT,
+                reply_to_msg_id INTEGER,
+                raw_data TEXT,
+                created_at TEXT
+            )
+            ''')
+            
+            # 创建索引
+            self.cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id)
+            ''')
+            self.cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id)
+            ''')
+            self.cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_messages_date ON messages(date)
+            ''')
+            
+            self.conn.commit()
+            
+            if not db_exists:
+                logger.info(f"数据库初始化成功: {self.db_file}")
+            else:
+                logger.info(f"连接到现有数据库: {self.db_file}")
+                
+        except Exception as e:
+            logger.error(f"初始化数据库失败: {e}")
+    
+    def close(self):
+        """关闭数据库连接"""
+        if self.conn:
+            self.conn.close()
+            logger.info("数据库连接已关闭")
+    
+    def save_message(self, message_data):
+        """
+        保存消息到数据库
+        
+        Args:
+            message_data: 消息数据字典
+            
+        Returns:
+            插入的消息ID
+        """
+        try:
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            self.cursor.execute('''
+            INSERT INTO messages (
+                message_id, chat_id, chat_title, chat_type, sender_id,
+                sender_username, sender_first_name, sender_last_name, text,
+                date, media_type, is_forwarded, forward_from, reply_to_msg_id,
+                raw_data, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                message_data.get('message_id'),
+                message_data.get('chat_id'),
+                message_data.get('chat_title'),
+                message_data.get('chat_type'),
+                message_data.get('sender_id'),
+                message_data.get('sender_username'),
+                message_data.get('sender_first_name'),
+                message_data.get('sender_last_name'),
+                message_data.get('text'),
+                message_data.get('date'),
+                message_data.get('media_type'),
+                message_data.get('is_forwarded'),
+                message_data.get('forward_from'),
+                message_data.get('reply_to_msg_id'),
+                message_data.get('raw_data'),
+                now
+            ))
+            
+            self.conn.commit()
+            last_id = self.cursor.lastrowid
+            logger.debug(f"消息保存成功，ID: {last_id}")
+            return last_id
+        except Exception as e:
+            logger.error(f"保存消息失败: {e}")
+            return None
+    
+    def get_message_by_id(self, message_id):
+        """
+        通过ID获取消息
+        
+        Args:
+            message_id: 消息ID
+            
+        Returns:
+            消息数据字典
+        """
+        try:
+            self.cursor.execute('SELECT * FROM messages WHERE id = ?', (message_id,))
+            row = self.cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+        except Exception as e:
+            logger.error(f"获取消息失败: {e}")
+            return None
+    
+    def get_messages(self, chat_id=None, sender_id=None, limit=100, offset=0):
+        """
+        获取消息列表
+        
+        Args:
+            chat_id: 聊天ID，可选
+            sender_id: 发送者ID，可选
+            limit: 返回条数限制，默认100
+            offset: 偏移量，默认0
+            
+        Returns:
+            消息列表
+        """
+        try:
+            conditions = []
+            params = []
+            
+            if chat_id is not None:
+                conditions.append('chat_id = ?')
+                params.append(chat_id)
+            
+            if sender_id is not None:
+                conditions.append('sender_id = ?')
+                params.append(sender_id)
+            
+            where_clause = ''
+            if conditions:
+                where_clause = 'WHERE ' + ' AND '.join(conditions)
+            
+            query = f'''
+            SELECT * FROM (
+                SELECT * FROM messages 
+                {where_clause}
+                ORDER BY date DESC
+                LIMIT ? OFFSET ?
+            )
+            ORDER BY date ASC
+            '''
+            
+            params.extend([limit, offset])
+            self.cursor.execute(query, tuple(params))
+            messages = [dict(row) for row in self.cursor.fetchall()]
+
+            # --- NEW: Fetch content for replied messages ---
+            reply_ids = [m['reply_to_msg_id'] for m in messages if m.get('reply_to_msg_id')]
+            if reply_ids and chat_id:
+                placeholders = ','.join('?' for _ in reply_ids)
+                reply_query_params = reply_ids + [chat_id]
+                reply_query = f"""
+                    SELECT message_id, text, sender_first_name, sender_username, sender_id 
+                    FROM messages 
+                    WHERE message_id IN ({placeholders}) AND chat_id = ?
+                """
+                self.cursor.execute(reply_query, reply_query_params)
+                replied_messages_rows = self.cursor.fetchall()
+                
+                replied_map = {row['message_id']: dict(row) for row in replied_messages_rows}
+                
+                for msg in messages:
+                    if msg.get('reply_to_msg_id') in replied_map:
+                        original_msg = replied_map[msg['reply_to_msg_id']]
+                        sender_name = original_msg.get('sender_first_name') or original_msg.get('sender_username') or f"ID:{original_msg.get('sender_id')}"
+                        msg['reply_content'] = {
+                            'sender': sender_name,
+                            'text': original_msg.get('text', '')
+                        }
+            # --- END NEW ---
+            
+            return messages
+        except Exception as e:
+            logger.error(f"获取消息列表失败: {e}")
+            return [] 

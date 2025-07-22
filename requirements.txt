@@ -1,0 +1,7 @@
+telethon==1.28.5
+asyncio==3.4.3
+colorama==0.4.6
+Flask==2.2.3
+Werkzeug==2.2.3
+Flask-SocketIO==5.3.3
+tzdata==2022.1 

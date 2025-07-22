@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AUTOTG - 仪表盘</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Vue.js -->
+    <script src="https://unpkg.com/vue@3.2.36/dist/vue.global.js"></script>
+    <!-- ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.3.3/dist/echarts.min.js"></script>
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.5.1/socket.io.min.js"></script>
+    <!-- Day.js for date formatting -->
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.4/dayjs.min.js"></script>
+    <style>
+      /* 自定义滚动条样式 */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f1f1;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #555;
+      }
+      .reply-card {
+        border-left: 2px solid #4a5568;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-100 font-sans">
+    <div id="app" class="flex flex-col h-screen">
+      <!-- Top Navigation Bar -->
+      <nav class="bg-white shadow-md w-full">
+        <div
+          class="container mx-auto px-6 py-3 flex justify-between items-center"
+        >
+          <div class="flex items-center">
+            <!-- Logo with SVG Icon -->
+            <a
+              class="text-2xl font-bold text-gray-800 flex items-center"
+              href="#"
+            >
+              <svg
+                class="w-8 h-8 mr-2 text-blue-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a2 2 0 01-2-2V7a2 2 0 012-2h6l2-2h-7a2 2 0 00-2 2v10a2 2 0 002 2h9a2 2 0 002-2v-2a2 2 0 00-2-2h-2l-2-2z"
+                ></path>
+              </svg>
+              AUTOTG
+            </a>
+          </div>
+          <div class="flex items-center space-x-4">
+            <!-- Menu with SVG Icons -->
+            <a
+              @click="activeView = 'chat'"
+              :class="{'text-blue-600 border-b-2 border-blue-600': activeView === 'chat'}"
+              class="flex items-center cursor-pointer px-3 py-2 text-gray-600 hover:text-blue-600"
+            >
+              <svg
+                class="w-5 h-5 mr-1"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                ></path>
+              </svg>
+              聊天
+            </a>
+            <a
+              @click="activeView = 'search'"
+              :class="{'text-blue-600 border-b-2 border-blue-600': activeView === 'search'}"
+              class="flex items-center cursor-pointer px-3 py-2 text-gray-600 hover:text-blue-600"
+            >
+              <svg
+                class="w-5 h-5 mr-1"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+              </svg>
+              搜索器
+            </a>
+            <a
+              @click="activeView = 'dashboard'"
+              :class="{'text-blue-600 border-b-2 border-blue-600': activeView === 'dashboard'}"
+              class="flex items-center cursor-pointer px-3 py-2 text-gray-600 hover:text-blue-600"
+            >
+              <svg
+                class="w-5 h-5 mr-1"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                ></path>
+              </svg>
+              数据面板
+            </a>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Main Content Area -->
+      <main class="flex-1 overflow-hidden">
+        {% raw %}
+        <!-- Chat View -->
+        <div v-if="activeView === 'chat'" class="flex h-full">
+          <!-- Session List -->
+          <aside class="w-1/3 bg-white border-r border-gray-200 flex flex-col">
+            <nav class="flex-1 p-2 overflow-y-auto">
+              <ul>
+                <li
+                  v-for="session in sessions"
+                  :key="session.id"
+                  @click="selectSession(session.id)"
+                  :class="{
+                    'bg-blue-100 text-blue-700': activeSessionId === session.id,
+                    'animate-pulse bg-green-100': session.isNew
+                  }"
+                  class="px-4 py-3 cursor-pointer hover:bg-gray-50 rounded-lg mb-1 transition-colors duration-300"
+                >
+                  <p class="font-semibold truncate">{{ session.title }}</p>
+                  <p class="text-xs text-gray-500">ID: {{ session.id }}</p>
+                </li>
+              </ul>
+            </nav>
+          </aside>
+          <!-- Message Area -->
+          <section class="w-2/3 flex flex-col bg-gray-50">
+            <header class="p-4 border-b bg-white z-10">
+              <h2 class="text-xl font-semibold text-gray-800 truncate">
+                {{ activeSessionTitle }}
+              </h2>
+            </header>
+            <div id="message-container" class="flex-1 p-4 overflow-y-auto">
+              <!-- Messages will be rendered here -->
+              <div
+                v-for="message in messages"
+                :key="message.id"
+                :id="`message-${message.message_id}`"
+                class="mb-4 transition-all duration-500 rounded-lg"
+              >
+                <div
+                  class="flex items-start"
+                  :class="{'justify-end': message.is_self}"
+                >
+                  <div
+                    class="w-10 h-10 rounded-full bg-blue-500 text-white flex-shrink-0 mr-3 flex items-center justify-center text-lg font-bold"
+                    :class="{'ml-3 order-2': message.is_self}"
+                  >
+                    {{ getAvatarInitial(getSenderName(message)) }}
+                  </div>
+                  <div class="max-w-md" :class="{'order-1': message.is_self}">
+                    <div
+                      class="flex items-center mb-1"
+                      :class="{'justify-end': message.is_self}"
+                    >
+                      <span class="font-semibold text-sm"
+                        >{{ getSenderName(message) }}</span
+                      >
+                      <span class="text-xs text-gray-500 ml-2"
+                        >{{ formatTimestamp(message.date) }}</span
+                      >
+                    </div>
+                    <div
+                      class="bg-white p-3 rounded-lg shadow-sm"
+                      :class="{'bg-blue-500 text-white': message.is_self}"
+                    >
+                      <!-- Reply Card -->
+                      <div
+                        v-if="message.reply_content"
+                        @click="scrollToMessage(message.reply_to_msg_id)"
+                        class="reply-card p-2 mb-2 bg-gray-200 text-gray-800 rounded-lg cursor-pointer hover:bg-gray-300 transition-colors"
+                      >
+                        <p class="text-xs font-semibold text-blue-600">
+                          {{ message.reply_content.sender }}
+                        </p>
+                        <p class="text-xs truncate">
+                          {{ message.reply_content.text }}
+                        </p>
+                      </div>
+                      <p class="text-sm">{{ message.text }}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Search View -->
+        <div v-if="activeView === 'search'" class="p-6 h-full flex flex-col">
+          <h2 class="text-2xl font-bold mb-4">全局消息搜索</h2>
+          <div class="flex mb-4">
+            <input
+              v-model="searchQuery"
+              @keyup.enter="searchMessages"
+              type="text"
+              placeholder="输入关键词搜索..."
+              class="w-full px-4 py-2 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              @click="searchMessages"
+              class="bg-blue-600 text-white px-6 py-2 rounded-r-lg hover:bg-blue-700"
+            >
+              搜索
+            </button>
+          </div>
+          <div class="flex-1 overflow-y-auto bg-white p-4 rounded-lg shadow">
+            <!-- Search results will be rendered here -->
+            <div
+              v-for="message in searchResults"
+              :key="message.id"
+              class="mb-4 border-b pb-2"
+            >
+              <div class="flex justify-between items-center mb-1">
+                <span class="font-semibold text-sm"
+                  >{{ getSenderName(message) }} @
+                  <span class="text-blue-600"
+                    >{{message.chat_title}}</span
+                  ></span
+                >
+                <span class="text-xs text-gray-500"
+                  >{{ formatTimestamp(message.date) }}</span
+                >
+              </div>
+              <p
+                class="text-sm"
+                v-html="highlightKeyword(message.text, searchQuery)"
+              ></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dashboard View -->
+        <div
+          v-if="activeView === 'dashboard'"
+          class="p-6 h-full overflow-y-auto"
+        >
+          <h2 class="text-2xl font-bold mb-4">数据分析面板</h2>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-white p-4 rounded-lg shadow">
+              <h3 class="text-lg font-semibold mb-2">7日消息频率</h3>
+              <div
+                id="daily-frequency-chart"
+                style="width: 100%; height: 300px"
+              ></div>
+            </div>
+            <div class="bg-white p-4 rounded-lg shadow">
+              <h3 class="text-lg font-semibold mb-2">7日用户发言排行</h3>
+              <div
+                id="user-ranking-chart"
+                style="width: 100%; height: 300px"
+              ></div>
+            </div>
+            <!-- New Charts -->
+            <div class="bg-white p-4 rounded-lg shadow">
+              <h3 class="text-lg font-semibold mb-2">消息类型分布</h3>
+              <div
+                id="message-type-chart"
+                style="width: 100%; height: 300px"
+              ></div>
+            </div>
+            <div class="bg-white p-4 rounded-lg shadow">
+              <h3 class="text-lg font-semibold mb-2">24小时活跃度</h3>
+              <div
+                id="hourly-activity-chart"
+                style="width: 100%; height: 300px"
+              ></div>
+            </div>
+          </div>
+        </div>
+        {% endraw %}
+      </main>
+    </div>
+
+    <script>
+      const { createApp, ref, onMounted, nextTick, watch } = Vue;
+
+      createApp({
+        setup() {
+          // Refs
+          const sessions = ref([]);
+          const messages = ref([]);
+          const activeSessionId = ref(null);
+          const activeSessionTitle = ref("请选择一个会话");
+          const activeView = ref("chat"); // 'chat', 'search', 'dashboard'
+          const searchQuery = ref("");
+          const searchResults = ref([]);
+
+          // ECharts instances
+          let dailyFrequencyChart = null;
+          let userRankingChart = null;
+          let messageTypeChart = null; // New chart instance
+          let hourlyActivityChart = null; // New chart instance
+
+          // Socket.IO
+          const socket = io("http://127.0.0.1:5000");
+
+          socket.on("connect", () => {
+            console.log("Connected to WebSocket server");
+          });
+
+          socket.on("new_message", (data) => {
+            console.log("New message received:", data);
+
+            // --- NEW: Handle reply content for WebSocket messages ---
+            if (data.reply_to_msg_id) {
+              const originalMsg = messages.value.find(
+                (m) => m.message_id === data.reply_to_msg_id
+              );
+              if (originalMsg) {
+                data.reply_content = {
+                  sender: getSenderName(originalMsg),
+                  text: originalMsg.text || "",
+                };
+              }
+            }
+            // --- END NEW ---
+
+            // Highlight session in the sidebar
+            const session = sessions.value.find((s) => s.id === data.chat_id);
+            if (session && session.id !== activeSessionId.value) {
+              session.isNew = true;
+            }
+
+            // If the new message belongs to the active session, add it to the message list
+            if (data.chat_id === activeSessionId.value) {
+              messages.value.push(data);
+              scrollToBottom();
+            }
+            // Update dashboard charts
+            fetchDashboardData();
+          });
+
+          watch(activeView, (newView) => {
+            if (newView === "dashboard") {
+              nextTick(() => {
+                initAndFetchDashboardData();
+              });
+            }
+          });
+
+          // Methods
+          const fetchSessions = async () => {
+            try {
+              const response = await fetch("/api/sessions");
+              if (!response.ok) throw new Error("Network response was not ok");
+              const data = await response.json();
+              // Add isNew property to each session
+              sessions.value = data.map((s) => ({ ...s, isNew: false }));
+              if (sessions.value.length > 0) {
+                // 默认选中第一个会话
+                selectSession(sessions.value[0].id);
+              }
+            } catch (error) {
+              console.error("获取会话列表失败:", error);
+            }
+          };
+
+          const selectSession = async (sessionId) => {
+            if (!sessionId) {
+              activeSessionTitle.value = "无效的会话ID";
+              return;
+            }
+            // Reset the new message indicator
+            const session = sessions.value.find((s) => s.id === sessionId);
+            if (session) {
+              session.isNew = false;
+            }
+
+            activeSessionId.value = sessionId;
+            activeSessionTitle.value = session ? session.title : "加载中...";
+            try {
+              const response = await fetch(`/api/messages/${sessionId}`);
+              if (!response.ok) throw new Error("Network response was not ok");
+              const data = await response.json();
+              messages.value = data;
+              scrollToBottom();
+            } catch (error) {
+              console.error("获取消息失败:", error);
+              messages.value = []; // 清空消息以防显示旧数据
+            }
+          };
+
+          const searchMessages = async () => {
+            if (!searchQuery.value.trim()) return;
+            try {
+              const response = await fetch(
+                `/api/search?q=${searchQuery.value}`
+              );
+              searchResults.value = await response.json();
+            } catch (error) {
+              console.error("Error searching messages:", error);
+            }
+          };
+
+          const initCharts = () => {
+            const dailyChartEl = document.getElementById(
+              "daily-frequency-chart"
+            );
+            if (dailyChartEl && !dailyFrequencyChart) {
+              dailyFrequencyChart = echarts.init(dailyChartEl);
+            }
+            const userChartEl = document.getElementById("user-ranking-chart");
+            if (userChartEl && !userRankingChart) {
+              userRankingChart = echarts.init(userChartEl);
+            }
+            const messageTypeEl = document.getElementById("message-type-chart");
+            if (messageTypeEl && !messageTypeChart) {
+              messageTypeChart = echarts.init(messageTypeEl);
+            }
+            const hourlyActivityEl = document.getElementById(
+              "hourly-activity-chart"
+            );
+            if (hourlyActivityEl && !hourlyActivityChart) {
+              hourlyActivityChart = echarts.init(hourlyActivityEl);
+            }
+          };
+
+          const initAndFetchDashboardData = () => {
+            initCharts(); // 确保DOM元素存在时才初始化
+            fetchDashboardData();
+          };
+
+          const fetchDashboardData = async () => {
+            try {
+              // Fetch daily frequency data
+              if (dailyFrequencyChart) {
+                const freqResponse = await fetch("/api/stats/daily_frequency");
+                const freqData = await freqResponse.json();
+                updateDailyFrequencyChart(freqData);
+              }
+
+              // Fetch user ranking data
+              if (userRankingChart) {
+                const rankResponse = await fetch("/api/stats/user_ranking");
+                const rankData = await rankResponse.json();
+                updateUserRankingChart(rankData);
+              }
+
+              // Fetch message type data
+              if (messageTypeChart) {
+                const typeResponse = await fetch(
+                  "/api/stats/message_type_distribution"
+                );
+                const typeData = await typeResponse.json();
+                updateMessageTypeChart(typeData);
+              }
+
+              // Fetch hourly activity data
+              if (hourlyActivityChart) {
+                const hourlyResponse = await fetch(
+                  "/api/stats/hourly_activity"
+                );
+                const hourlyData = await hourlyResponse.json();
+                updateHourlyActivityChart(hourlyData);
+              }
+            } catch (error) {
+              console.error("获取仪表盘数据失败:", error);
+            }
+          };
+
+          const updateDailyFrequencyChart = (data) => {
+            const option = {
+              tooltip: { trigger: "axis" },
+              xAxis: {
+                type: "category",
+                data: data.map((item) => item.day),
+              },
+              yAxis: { type: "value" },
+              series: [
+                {
+                  data: data.map((item) => item.count),
+                  type: "line",
+                  smooth: true,
+                },
+              ],
+            };
+            dailyFrequencyChart.setOption(option);
+          };
+
+          const updateUserRankingChart = (data) => {
+            const option = {
+              tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+              grid: { left: "25%" }, // Adjust grid to prevent label overlap
+              yAxis: {
+                type: "category",
+                data: data.map((item) => item.name).reverse(),
+              },
+              xAxis: { type: "value" },
+              series: [
+                {
+                  data: data.map((item) => item.count).reverse(),
+                  type: "bar",
+                  showBackground: true,
+                  backgroundStyle: { color: "rgba(180, 180, 180, 0.2)" },
+                },
+              ],
+            };
+            userRankingChart.setOption(option);
+          };
+
+          // New Chart Update Functions
+          const updateMessageTypeChart = (data) => {
+            const option = {
+              tooltip: { trigger: "item" },
+              legend: { top: "5%", left: "center" },
+              series: [
+                {
+                  name: "消息类型",
+                  type: "pie",
+                  radius: ["40%", "70%"],
+                  avoidLabelOverlap: false,
+                  itemStyle: {
+                    borderRadius: 10,
+                    borderColor: "#fff",
+                    borderWidth: 2,
+                  },
+                  label: { show: false, position: "center" },
+                  emphasis: {
+                    label: { show: true, fontSize: "20", fontWeight: "bold" },
+                  },
+                  data: data,
+                },
+              ],
+            };
+            messageTypeChart.setOption(option);
+          };
+
+          const updateHourlyActivityChart = (data) => {
+            const option = {
+              tooltip: { trigger: "axis" },
+              xAxis: {
+                type: "category",
+                data: data.map((item) => item.hour),
+              },
+              yAxis: { type: "value" },
+              dataZoom: [{ type: "inside" }], // Add zoom functionality
+              series: [
+                {
+                  name: "消息数",
+                  type: "bar",
+                  data: data.map((item) => item.count),
+                  itemStyle: { color: "#5470C6" },
+                },
+              ],
+            };
+            hourlyActivityChart.setOption(option);
+          };
+
+          const formatTimestamp = (timestamp) => {
+            return dayjs(timestamp).format("YYYY-MM-DD HH:mm:ss");
+          };
+
+          const scrollToBottom = () => {
+            nextTick(() => {
+              const container = document.getElementById("message-container");
+              if (container) {
+                container.scrollTop = container.scrollHeight;
+              }
+            });
+          };
+
+          const getSenderName = (message) => {
+            return (
+              message.sender_first_name ||
+              message.sender_username ||
+              `ID:${message.sender_id}` ||
+              "未知用户"
+            );
+          };
+
+          const getAvatarInitial = (name) => {
+            if (!name || name.length === 0) return "?";
+            const upperCaseName = name.toUpperCase();
+            // 检查是否为英文字母
+            if (/[A-Z]/.test(upperCaseName[0])) {
+              return upperCaseName[0];
+            }
+            // 对于中文或其他字符，返回最后一个字
+            return name.slice(-1);
+          };
+
+          const highlightKeyword = (text, keyword) => {
+            if (!text || !keyword) return text;
+            const regex = new RegExp(keyword, "gi");
+            return text.replace(
+              regex,
+              (match) => `<strong class="bg-yellow-200">${match}</strong>`
+            );
+          };
+
+          const scrollToMessage = (messageId) => {
+            const element = document.getElementById(`message-${messageId}`);
+            if (element) {
+              element.scrollIntoView({ behavior: "smooth", block: "center" });
+              // Add a temporary highlight effect
+              element.classList.add("bg-yellow-200");
+              setTimeout(() => {
+                element.classList.remove("bg-yellow-200");
+              }, 1500); // Highlight for 1.5 seconds
+            } else {
+              alert(`原始消息 (ID: ${messageId}) 不在当前加载的记录中。`);
+            }
+          };
+
+          // Lifecycle
+          onMounted(() => {
+            fetchSessions();
+            // 只有当仪表盘是默认视图时才在挂载时加载，现在不是默认视图，所以注释掉
+            // if (activeView.value === 'dashboard') {
+            //    initAndFetchDashboardData();
+            // }
+          });
+
+          return {
+            sessions,
+            messages,
+            activeSessionId,
+            activeSessionTitle,
+            searchQuery,
+            searchResults,
+            activeView,
+            selectSession,
+            searchMessages,
+            formatTimestamp,
+            getSenderName,
+            highlightKeyword,
+            scrollToMessage,
+            getAvatarInitial,
+          };
+        },
+      }).mount("#app");
+    </script>
+  </body>
+</html>
