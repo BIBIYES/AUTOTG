@@ -7,6 +7,7 @@ import os
 import sys
 import signal
 from threading import Thread
+import time # Added for the new_code
 
 # 将web目录添加到路径，以便导入app
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'web'))
@@ -16,6 +17,7 @@ from core.config import Config
 from core.database import Database
 from core.formatter import MessageFormatter
 from web.app import app, socketio # 导入Flask app和socketio实例
+from core.scheduler import ReportScheduler # 导入调度器
 
 # 配置日志
 logging.basicConfig(
@@ -32,6 +34,7 @@ def signal_handler(sig, frame):
     print("\n正在退出程序...")
     if bot:
         bot.stop()
+    # scheduler is handled by daemon thread, no need to stop explicitly
     sys.exit(0)
 
 def run_web_app():
@@ -79,6 +82,10 @@ def main():
     bot.set_message_formatter(MessageFormatter)
     bot.set_socketio(socketio) # 将socketio实例传递给bot
     
+    # 初始化并启动报告调度器
+    scheduler = ReportScheduler(config, db)
+    scheduler.start()
+
     # 登录
     if bot.login():
         logger.info("登录成功！")
@@ -94,8 +101,13 @@ def main():
             logger.info("按 Ctrl+C 停止运行")
             bot.start()
         else:
-            logger.info("已禁用消息监听。Web服务正在运行，请按 Ctrl+C 退出。")
-            web_thread.join() # 如果不监听，则等待web线程结束
+            logger.info("消息监听已禁用。Web服务和调度器正在运行，请按 Ctrl+C 退出。")
+            # 如果不监听，则等待web线程结束
+            try:
+                while True:
+                    time.sleep(60)
+            except KeyboardInterrupt:
+                signal_handler(signal.SIGINT, None)
     else:
         logger.error("登录失败！")
     

@@ -223,3 +223,41 @@ class Database:
         except Exception as e:
             logger.error(f"获取消息列表失败: {e}")
             return [] 
+
+    def get_messages_for_today(self, chat_ids=None):
+        """
+        获取今天的所有消息文本，可按chat_id过滤。
+        
+        Args:
+            chat_ids (list, optional): 要包含的chat_id列表。如果为None或空，则获取所有消息。
+            
+        Returns:
+            str: 拼接好的所有消息文本。
+        """
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            
+            # Updated query to exclude unsupported media and also check for null/empty media_type
+            query = """
+                SELECT text FROM messages 
+                WHERE 
+                    date(date) = ? 
+                    AND text IS NOT NULL 
+                    AND text != ''
+                    AND (media_type IS NULL OR media_type != 'MessageMediaUnsupported')
+            """
+            params = [today]
+            
+            if chat_ids:
+                placeholders = ','.join('?' for _ in chat_ids)
+                query += f" AND chat_id IN ({placeholders})"
+                params.extend(chat_ids)
+            
+            self.cursor.execute(query, tuple(params))
+            
+            all_texts = [row['text'] for row in self.cursor.fetchall()]
+            return " ".join(all_texts)
+            
+        except Exception as e:
+            logger.error(f"获取今日消息失败: {e}")
+            return "" 
