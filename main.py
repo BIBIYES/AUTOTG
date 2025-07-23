@@ -41,7 +41,7 @@ def run_web_app():
     """在eventlet服务器中运行Flask应用"""
     logger.info("启动Web服务器于 http://0.0.0.0:5000")
     # 明确禁用reloader以避免在生产环境中（如systemd服务）出现Werkzeug错误
-    socketio.run(app, host='0.0.0.0', port=5000, use_reloader=False)
+    socketio.run(app, host='0.0.0.0', port=5000, use_reloader=False, allow_unsafe_werkzeug=True)
 
 def main():
     global bot
