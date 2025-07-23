@@ -147,9 +147,10 @@ class Tgbot:
                     formatted_message = self.message_formatter.format_message_for_console(message_data)
                     print(formatted_message)
                     
-                    # 保存到数据库
+                    # 异步保存到数据库，避免阻塞
                     if self.db:
-                        self.db.save_message(message_data)
+                        loop = asyncio.get_event_loop()
+                        await loop.run_in_executor(None, self.db.save_message, message_data)
                     
                     # 通过WebSocket发送到前端
                     if self.socketio:
@@ -174,9 +175,10 @@ class Tgbot:
                     formatted_message = self.message_formatter.format_message_for_console(message_data)
                     print(formatted_message)
                     
-                    # 保存到数据库
+                    # 异步保存到数据库
                     if self.db:
-                        self.db.save_message(message_data)
+                        loop = asyncio.get_event_loop()
+                        await loop.run_in_executor(None, self.db.save_message, message_data)
                 
             except Exception as e:
                 logger.error(f"处理编辑消息时出错: {e}")
