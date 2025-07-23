@@ -14,6 +14,8 @@
     <script src="https://cdn.socket.io/4.5.1/socket.io.min.js"></script>
     <!-- Day.js for date formatting -->
     <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.4/dayjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.4/plugin/utc.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.4/plugin/timezone.js"></script>
     <style>
       /* 自定义滚动条样式 */
       ::-webkit-scrollbar {
@@ -283,14 +285,7 @@
                 style="width: 100%; height: 300px"
               ></div>
             </div>
-            <!-- New Group Ranking Chart -->
-            <div class="bg-white p-4 rounded-lg shadow">
-              <h3 class="text-lg font-semibold mb-2">7日群组活跃度排行</h3>
-              <div
-                id="group-ranking-chart"
-                style="width: 100%; height: 300px"
-              ></div>
-            </div>
+
             <!-- New Charts -->
             <div class="bg-white p-4 rounded-lg shadow">
               <h3 class="text-lg font-semibold mb-2">消息类型分布</h3>
@@ -300,9 +295,17 @@
               ></div>
             </div>
             <div class="bg-white p-4 rounded-lg shadow">
-              <h3 class="text-lg font-semibold mb-2">24小时活跃度</h3>
+              <h3 class="text-lg font-semibold mb-2">14天每小时热力图</h3>
               <div
                 id="hourly-activity-chart"
+                style="width: 100%; height: 300px"
+              ></div>
+            </div>
+            <!-- New Group Ranking Chart -->
+            <div class="bg-white p-4 rounded-lg shadow">
+              <h3 class="text-lg font-semibold mb-2">7日群组活跃度排行</h3>
+              <div
+                id="group-ranking-chart"
                 style="width: 100%; height: 300px"
               ></div>
             </div>
@@ -314,6 +317,9 @@
 
     <script>
       const { createApp, ref, onMounted, nextTick, watch } = Vue;
+
+      dayjs.extend(window.dayjs_plugin_utc);
+      dayjs.extend(window.dayjs_plugin_timezone);
 
       createApp({
         setup() {
@@ -515,27 +521,27 @@
             const dailyChartEl = document.getElementById(
               "daily-frequency-chart"
             );
-            if (dailyChartEl && !dailyFrequencyChart) {
+            if (dailyChartEl) {
               dailyFrequencyChart = echarts.init(dailyChartEl);
             }
             const userChartEl = document.getElementById("user-ranking-chart");
-            if (userChartEl && !userRankingChart) {
+            if (userChartEl) {
               userRankingChart = echarts.init(userChartEl);
             }
             const messageTypeEl = document.getElementById("message-type-chart");
-            if (messageTypeEl && !messageTypeChart) {
+            if (messageTypeEl) {
               messageTypeChart = echarts.init(messageTypeEl);
             }
             const hourlyActivityEl = document.getElementById(
               "hourly-activity-chart"
             );
-            if (hourlyActivityEl && !hourlyActivityChart) {
+            if (hourlyActivityEl) {
               hourlyActivityChart = echarts.init(hourlyActivityEl);
             }
             const groupRankingEl = document.getElementById(
               "group-ranking-chart"
             );
-            if (groupRankingEl && !groupRankingChart) {
+            if (groupRankingEl) {
               groupRankingChart = echarts.init(groupRankingEl);
             }
           };
@@ -573,7 +579,7 @@
               // Fetch hourly activity data
               if (hourlyActivityChart) {
                 const hourlyResponse = await fetch(
-                  "/api/stats/hourly_activity"
+                  "/api/stats/activity_heatmap"
                 );
                 const hourlyData = await hourlyResponse.json();
                 updateHourlyActivityChart(hourlyData);
@@ -660,20 +666,85 @@
           };
 
           const updateHourlyActivityChart = (data) => {
+            // 生成最近14天的日期列表
+            const days = [...Array(14).keys()].map((i) =>
+              dayjs()
+                .subtract(13 - i, "day")
+                .format("YYYY-MM-DD")
+            );
+            // 小时标签
+            const hours = Array.from({ length: 24 }, (_, i) =>
+              i.toString().padStart(2, "0")
+            );
+
+            // 创建一个映射表来存储每个日期对应的星期名称
+            const weekdayMap = {};
+            data.forEach((item) => {
+              if (item[0] && item[3] !== undefined) {
+                weekdayMap[item[0]] = item[3]; // 存储日期和对应的星期名
+              }
+            });
+
             const option = {
-              tooltip: { trigger: "axis" },
+              tooltip: {
+                position: "top",
+                formatter: (params) => {
+                  const date = params.value[0];
+                  const hour = hours[params.value[1]];
+                  const count = params.value[2];
+                  const weekday = weekdayMap[date] || "";
+                  return `${date} ${weekday} ${hour}:00<br>消息数: ${count}`;
+                },
+              },
+              grid: {
+                height: "60%",
+                top: "10%",
+                right: "5%",
+                left: "15%",
+              },
               xAxis: {
                 type: "category",
-                data: data.map((item) => item.hour),
+                data: days,
+                splitArea: {
+                  show: true,
+                },
+                axisLabel: {
+                  rotate: 45,
+                  formatter: (value) => dayjs(value).format("MM-DD"),
+                },
               },
-              yAxis: { type: "value" },
-              dataZoom: [{ type: "inside" }], // Add zoom functionality
+              yAxis: {
+                type: "category",
+                data: hours,
+                splitArea: {
+                  show: true,
+                },
+                name: "小时",
+                nameLocation: "middle",
+                nameGap: 30,
+              },
+              visualMap: {
+                min: 0,
+                max: Math.max(...data.map((item) => item[2]), 10), // 动态设置最大值
+                calculable: true,
+                orient: "horizontal",
+                left: "center",
+                bottom: "0%",
+              },
               series: [
                 {
-                  name: "消息数",
-                  type: "bar",
-                  data: data.map((item) => item.count),
-                  itemStyle: { color: "#5470C6" },
+                  name: "每小时消息数",
+                  type: "heatmap",
+                  data: data.map((item) => [item[0], item[1], item[2]]), // 只使用前三个元素
+                  label: {
+                    show: false,
+                  },
+                  emphasis: {
+                    itemStyle: {
+                      shadowBlur: 10,
+                      shadowColor: "rgba(0, 0, 0, 0.5)",
+                    },
+                  },
                 },
               ],
             };
@@ -710,7 +781,11 @@
           };
 
           const formatTimestamp = (timestamp) => {
-            return dayjs(timestamp).format("YYYY-MM-DD HH:mm:ss");
+            // 解析从后端传来的UTC时间，并转换为北京时间（Asia/Shanghai）进行显示
+            return dayjs
+              .utc(timestamp)
+              .tz("Asia/Shanghai")
+              .format("YYYY-MM-DD HH:mm:ss");
           };
 
           const scrollToBottom = () => {

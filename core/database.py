@@ -4,7 +4,7 @@
 import os
 import sqlite3
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -34,55 +34,16 @@ class Database:
             self.conn.row_factory = sqlite3.Row
             self.cursor = self.conn.cursor()
             
-            # 创建消息表
-            # 旧的建表语句（保留，以防万一）
-            # CREATE TABLE IF NOT EXISTS messages ( ... raw_data TEXT, ... )
-            
-            # 检查raw_data列是否存在
-            self.cursor.execute("PRAGMA table_info(messages)")
-            columns = [column['name'] for column in self.cursor.fetchall()]
-            if 'raw_data' in columns:
-                logger.info("检测到旧的 'raw_data' 列，正在尝试移除...")
-                try:
-                    # 创建一个没有raw_data的新表
-                    self.cursor.execute('''
-                    CREATE TABLE messages_new (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, chat_id INTEGER,
-                        chat_title TEXT, chat_type TEXT, sender_id INTEGER, sender_username TEXT,
-                        sender_first_name TEXT, sender_last_name TEXT, text TEXT, date TEXT,
-                        media_type TEXT, is_forwarded BOOLEAN, forward_from TEXT,
-                        reply_to_msg_id INTEGER, created_at TEXT
-                    )
-                    ''')
-                    # 复制数据
-                    self.cursor.execute('''
-                    INSERT INTO messages_new SELECT 
-                        id, message_id, chat_id, chat_title, chat_type, sender_id, sender_username,
-                        sender_first_name, sender_last_name, text, date, media_type, is_forwarded,
-                        forward_from, reply_to_msg_id, created_at 
-                    FROM messages
-                    ''')
-                    # 删除旧表
-                    self.cursor.execute("DROP TABLE messages")
-                    # 重命名新表
-                    self.cursor.execute("ALTER TABLE messages_new RENAME TO messages")
-                    self.conn.commit()
-                    logger.info("'raw_data' 列已成功移除。")
-                except Exception as e:
-                    logger.error(f"移除 'raw_data' 列失败，可能需要手动处理数据库: {e}")
-                    # 如果失败，可能需要回滚
-                    self.conn.rollback()
-            else:
-                 # 如果列不存在，则创建新表（不含raw_data）
-                self.cursor.execute('''
-                CREATE TABLE IF NOT EXISTS messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, chat_id INTEGER,
-                    chat_title TEXT, chat_type TEXT, sender_id INTEGER, sender_username TEXT,
-                    sender_first_name TEXT, sender_last_name TEXT, text TEXT, date TEXT,
-                    media_type TEXT, is_forwarded BOOLEAN, forward_from TEXT,
-                    reply_to_msg_id INTEGER, created_at TEXT
-                )
-                ''')
+            # 创建表（如果不存在）
+            self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, chat_id INTEGER,
+                chat_title TEXT, chat_type TEXT, sender_id INTEGER, sender_username TEXT,
+                sender_first_name TEXT, sender_last_name TEXT, text TEXT, date TEXT,
+                media_type TEXT, is_forwarded BOOLEAN, forward_from TEXT,
+                reply_to_msg_id INTEGER, created_at TEXT
+            )
+            ''')
             
             # 创建索引
             self.cursor.execute('''
@@ -122,8 +83,7 @@ class Database:
             插入的消息ID
         """
         try:
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
+            now = datetime.now(timezone.utc).isoformat()
             self.cursor.execute('''
             INSERT INTO messages (
                 message_id, chat_id, chat_title, chat_type, sender_id,
@@ -261,7 +221,7 @@ class Database:
             str: 拼接好的所有消息文本。
         """
         try:
-            today = datetime.now().strftime('%Y-%m-%d')
+            today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
             
             query = """
                 SELECT text FROM messages 

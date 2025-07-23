@@ -85,10 +85,11 @@ def daily_frequency():
     """获取过去7天的每日消息频率"""
     try:
         database = get_db()
+        # 使用北京时间 (UTC+8)，并以 created_at 为基准
         database.cursor.execute("""
-            SELECT date(date) as day, COUNT(*) as count
+            SELECT date(created_at, '+8 hours') as day, COUNT(*) as count
             FROM messages
-            WHERE date >= date('now', '-7 days')
+            WHERE date(created_at, '+8 hours') >= date('now', '-7 days', '+8 hours')
             GROUP BY day
             ORDER BY day
         """)
@@ -103,10 +104,11 @@ def user_ranking():
     """获取过去7天用户发言排行"""
     try:
         database = get_db()
+        # 使用北京时间 (UTC+8)，并以 created_at 为基准
         database.cursor.execute("""
             SELECT sender_id, sender_username, sender_first_name, COUNT(*) as count
             FROM messages
-            WHERE date >= date('now', '-7 days') AND sender_id IS NOT NULL
+            WHERE date(created_at, '+8 hours') >= date('now', '-7 days', '+8 hours') AND sender_id IS NOT NULL
             GROUP BY sender_id
             ORDER BY count DESC
             LIMIT 10
@@ -127,6 +129,7 @@ def group_ranking():
         database = get_db()
         # 筛选出群组/频道类型的消息 (chat_id通常是负数)
         # 并按消息数量排序
+        # 使用北京时间 (UTC+8)，并以 created_at 为基准
         query = """
             SELECT
                 chat_id,
@@ -134,7 +137,7 @@ def group_ranking():
                 COUNT(*) as count
             FROM messages
             WHERE
-                date >= date('now', '-7 days')
+                date(created_at, '+8 hours') >= date('now', '-7 days', '+8 hours')
                 AND (chat_type = 'group' OR chat_type = 'supergroup' OR chat_type = 'channel')
             GROUP BY chat_id, chat_title
             ORDER BY count DESC
@@ -172,31 +175,67 @@ def message_type_distribution():
         logging.error(f"获取消息类型分布失败: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/stats/hourly_activity', methods=['GET'])
-def hourly_activity():
-    """获取24小时活跃度"""
+@app.route('/api/stats/activity_heatmap', methods=['GET'])
+def activity_heatmap():
+    """获取过去14天的每小时活跃度数据，用于生成热力图"""
     try:
         database = get_db()
-        # 提取小时并分组计数
+        # 使用北京时间 (UTC+8)，并以 created_at 为基准
         query = """
-            SELECT
-                strftime('%H', date) as hour,
-                COUNT(*) as count
-            FROM messages
-            GROUP BY hour
-            ORDER BY hour
+            WITH RECURSIVE 
+            date_series AS (
+            SELECT DATE('now', '-13 days', '+8 hours') as date_val
+            UNION ALL
+            SELECT DATE(date_val, '+1 day')
+            FROM date_series
+            WHERE date_val < DATE('now', '+8 hours')
+            ),
+            hour_series AS (
+            SELECT 0 as hour_val
+            UNION ALL
+            SELECT hour_val + 1
+            FROM hour_series
+            WHERE hour_val < 23
+            ),
+            date_hour_matrix AS (
+            SELECT 
+                d.date_val,
+                h.hour_val,
+                CASE STRFTIME('%w', d.date_val)
+                WHEN '0' THEN '周日'
+                WHEN '1' THEN '周一'
+                WHEN '2' THEN '周二'
+                WHEN '3' THEN '周三'
+                WHEN '4' THEN '周四'
+                WHEN '5' THEN '周五'
+                WHEN '6' THEN '周六'
+                END as weekday_name
+            FROM date_series d
+            CROSS JOIN hour_series h
+            )
+            SELECT 
+            dhm.date_val as date,
+            dhm.hour_val as hour,
+            dhm.weekday_name,
+            COALESCE(COUNT(m.id), 0) as message_count
+            FROM date_hour_matrix dhm
+            LEFT JOIN messages m ON 
+            DATE(m.created_at, '+8 hours') = dhm.date_val 
+            AND CAST(STRFTIME('%H', m.created_at, '+8 hours') AS INTEGER) = dhm.hour_val
+            GROUP BY dhm.date_val, dhm.hour_val, dhm.weekday_name
+            ORDER BY dhm.date_val, dhm.hour_val;
         """
         database.cursor.execute(query)
-        # 创建一个包含所有24小时的字典
-        hourly_data = {f"{h:02d}": 0 for h in range(24)}
-        for row in database.cursor.fetchall():
-            hourly_data[row['hour']] = row['count']
         
-        # 转换为ECharts需要的格式
-        stats = [{'hour': h, 'count': c} for h, c in hourly_data.items()]
-        return jsonify(stats)
+        # 将数据处理成 [day, hour, count] 的格式
+        # ECharts热力图需要这种格式
+        heatmap_data = []
+        for row in database.cursor.fetchall():
+            heatmap_data.append([row['date'], int(row['hour']), row['message_count'], row['weekday_name']])
+            
+        return jsonify(heatmap_data)
     except Exception as e:
-        logging.error(f"获取24小时活跃度失败: {e}")
+        logging.error(f"获取活跃度热力图数据失败: {e}")
         return jsonify({"error": str(e)}), 500
 
 def run_web_app():
