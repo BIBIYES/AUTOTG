@@ -36,13 +36,13 @@ class Database:
             
             # 创建表（如果不存在）
             self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, chat_id INTEGER,
-                chat_title TEXT, chat_type TEXT, sender_id INTEGER, sender_username TEXT,
-                sender_first_name TEXT, sender_last_name TEXT, text TEXT, date TEXT,
-                media_type TEXT, is_forwarded BOOLEAN, forward_from TEXT,
-                reply_to_msg_id INTEGER, created_at TEXT
-            )
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, chat_id INTEGER,
+                    chat_title TEXT, chat_type TEXT, sender_id INTEGER, sender_username TEXT,
+                    sender_first_name TEXT, sender_last_name TEXT, text TEXT, date TEXT,
+                    media_type TEXT, is_forwarded BOOLEAN, forward_from TEXT,
+                    reply_to_msg_id INTEGER, created_at TEXT
+                )
             ''')
             
             # 创建索引
@@ -244,6 +244,41 @@ class Database:
             
         except Exception as e:
             logger.error(f"获取今日消息失败 (chat_id: {chat_id}): {e}")
+            return ""
+
+    def get_messages_for_last_24_hours(self, chat_id=None):
+        """
+        获取过去24小时内的消息文本。
+        
+        Args:
+            chat_id (int, optional): 单个chat_id。如果为None，则获取所有消息。
+            
+        Returns:
+            str: 拼接好的所有消息文本。
+        """
+        try:
+            # SQLite's datetime function works with ISO 8601 strings directly
+            query = """
+                SELECT text FROM messages 
+                WHERE 
+                    created_at >= datetime('now', '-24 hours')
+                    AND text IS NOT NULL 
+                    AND text != ''
+                    AND (media_type IS NULL OR media_type != 'MessageMediaUnsupported')
+            """
+            params = []
+            
+            if chat_id:
+                query += " AND chat_id = ?"
+                params.append(chat_id)
+            
+            self.cursor.execute(query, tuple(params))
+            
+            all_texts = [row['text'] for row in self.cursor.fetchall()]
+            return " ".join(all_texts)
+            
+        except Exception as e:
+            logger.error(f"获取过去24小时消息失败 (chat_id: {chat_id}): {e}")
             return ""
 
     def get_chat_title(self, chat_id):

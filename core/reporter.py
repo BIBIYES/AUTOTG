@@ -102,22 +102,22 @@ class DailyReporter:
             for chat_id in target_chat_ids:
                 logger.info(f"正在为 Chat ID: {chat_id} 生成报告...")
                 chat_title = self.db.get_chat_title(chat_id)
-                text_data = self.db.get_messages_for_today(chat_id=chat_id)
+                text_data = self.db.get_messages_for_last_24_hours(chat_id=chat_id)
                 
                 if text_data:
                     image_bytes = self._generate_wordcloud(text_data)
                     self._send_email(image_bytes, chat_title=chat_title)
                 else:
-                    logger.info(f"Chat ID: {chat_id} (标题: {chat_title}) 今日无有效消息，跳过报告。")
+                    logger.info(f"Chat ID: {chat_id} (标题: {chat_title}) 过去24小时内无有效消息，跳过报告。")
         else:
             # 如果没有配置目标，则按原逻辑处理所有消息
             logger.info("未配置目标Chat ID，将为所有会话生成一份总报告。")
-            text_data = self.db.get_messages_for_today()
+            text_data = self.db.get_messages_for_last_24_hours()
             if text_data:
                 image_bytes = self._generate_wordcloud(text_data)
                 self._send_email(image_bytes, chat_title="所有消息汇总")
             else:
-                logger.info("今日无任何有效消息，跳过总报告。")
+                logger.info("过去24小时内无任何有效消息，跳过总报告。")
         
         logger.info("每日报告任务执行完毕。")
 

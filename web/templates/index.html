@@ -377,8 +377,18 @@
 
             // If the new message belongs to the active session, add it to the message list
             if (data.chat_id === activeSessionId.value) {
+              const container = document.getElementById("message-container");
+              // 只有当用户已经滚动到底部时，才自动滚动
+              const shouldScroll = container
+                ? container.scrollHeight - container.clientHeight <=
+                  container.scrollTop + 50
+                : true;
+
               messages.value.push(data);
-              scrollToBottom();
+
+              if (shouldScroll) {
+                scrollToBottom();
+              }
             }
             // Update dashboard charts
             fetchDashboardData();
