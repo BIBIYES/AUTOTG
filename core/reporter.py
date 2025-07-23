@@ -35,8 +35,8 @@ class DailyReporter:
             
             # 检查字体路径是否存在
             if not os.path.exists(self.font_path):
-                 logger.error(f"指定的字体文件不存在: {self.font_path}。词云可能无法正确显示中文。")
-                 # 可以在这里回退到默认字体，但中文会是乱码
+                logger.error(f"指定的字体文件不存在: {self.font_path}。词云可能无法正确显示中文。")
+                # 可以在这里回退到默认字体，但中文会是乱码
             
             wordcloud = WordCloud(
                 font_path=self.font_path,
