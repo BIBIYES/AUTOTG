@@ -5,7 +5,6 @@ import os
 import sqlite3
 import logging
 from datetime import datetime, timezone
-import threading
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,6 @@ class Database:
         self.db_file = db_file
         self.conn = None
         self.cursor = None
-        self.lock = threading.Lock() # 为多线程操作添加锁
         self.init_db()
     
     def init_db(self):
@@ -84,41 +82,40 @@ class Database:
         Returns:
             插入的消息ID
         """
-        with self.lock: # 获取锁
-            try:
-                now = datetime.now(timezone.utc).isoformat()
-                self.cursor.execute('''
-                INSERT INTO messages (
-                    message_id, chat_id, chat_title, chat_type, sender_id,
-                    sender_username, sender_first_name, sender_last_name, text,
-                    date, media_type, is_forwarded, forward_from, reply_to_msg_id,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    message_data.get('message_id'),
-                    message_data.get('chat_id'),
-                    message_data.get('chat_title'),
-                    message_data.get('chat_type'),
-                    message_data.get('sender_id'),
-                    message_data.get('sender_username'),
-                    message_data.get('sender_first_name'),
-                    message_data.get('sender_last_name'),
-                    message_data.get('text'),
-                    message_data.get('date'),
-                    message_data.get('media_type'),
-                    message_data.get('is_forwarded'),
-                    message_data.get('forward_from'),
-                    message_data.get('reply_to_msg_id'),
-                    now
-                ))
-                
-                self.conn.commit()
-                last_id = self.cursor.lastrowid
-                logger.debug(f"消息保存成功，ID: {last_id}")
-                return last_id
-            except Exception as e:
-                logger.error(f"保存消息失败: {e}")
-                return None
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            self.cursor.execute('''
+            INSERT INTO messages (
+                message_id, chat_id, chat_title, chat_type, sender_id,
+                sender_username, sender_first_name, sender_last_name, text,
+                date, media_type, is_forwarded, forward_from, reply_to_msg_id,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                message_data.get('message_id'),
+                message_data.get('chat_id'),
+                message_data.get('chat_title'),
+                message_data.get('chat_type'),
+                message_data.get('sender_id'),
+                message_data.get('sender_username'),
+                message_data.get('sender_first_name'),
+                message_data.get('sender_last_name'),
+                message_data.get('text'),
+                message_data.get('date'),
+                message_data.get('media_type'),
+                message_data.get('is_forwarded'),
+                message_data.get('forward_from'),
+                message_data.get('reply_to_msg_id'),
+                now
+            ))
+            
+            self.conn.commit()
+            last_id = self.cursor.lastrowid
+            logger.debug(f"消息保存成功，ID: {last_id}")
+            return last_id
+        except Exception as e:
+            logger.error(f"保存消息失败: {e}")
+            return None
     
     def get_message_by_id(self, message_id):
         """
@@ -130,16 +127,15 @@ class Database:
         Returns:
             消息数据字典
         """
-        with self.lock: # 获取锁
-            try:
-                self.cursor.execute('SELECT * FROM messages WHERE id = ?', (message_id,))
-                row = self.cursor.fetchone()
-                if row:
-                    return dict(row)
-                return None
-            except Exception as e:
-                logger.error(f"获取消息失败: {e}")
-                return None
+        try:
+            self.cursor.execute('SELECT * FROM messages WHERE id = ?', (message_id,))
+            row = self.cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+        except Exception as e:
+            logger.error(f"获取消息失败: {e}")
+            return None
     
     def get_messages(self, chat_id=None, sender_id=None, limit=100, offset=0):
         """
@@ -154,66 +150,65 @@ class Database:
         Returns:
             消息列表
         """
-        with self.lock: # 获取锁
-            try:
-                conditions = []
-                params = []
-                
-                if chat_id is not None:
-                    conditions.append('chat_id = ?')
-                    params.append(chat_id)
-                
-                if sender_id is not None:
-                    conditions.append('sender_id = ?')
-                    params.append(sender_id)
-                
-                where_clause = ''
-                if conditions:
-                    where_clause = 'WHERE ' + ' AND '.join(conditions)
-                
-                query = f'''
-                SELECT * FROM (
-                    SELECT * FROM messages 
-                    {where_clause}
-                    ORDER BY date DESC
-                    LIMIT ? OFFSET ?
-                )
-                ORDER BY date ASC
-                '''
-                
-                params.extend([limit, offset])
-                self.cursor.execute(query, tuple(params))
-                messages = [dict(row) for row in self.cursor.fetchall()]
+        try:
+            conditions = []
+            params = []
+            
+            if chat_id is not None:
+                conditions.append('chat_id = ?')
+                params.append(chat_id)
+            
+            if sender_id is not None:
+                conditions.append('sender_id = ?')
+                params.append(sender_id)
+            
+            where_clause = ''
+            if conditions:
+                where_clause = 'WHERE ' + ' AND '.join(conditions)
+            
+            query = f'''
+            SELECT * FROM (
+                SELECT * FROM messages 
+                {where_clause}
+                ORDER BY date DESC
+                LIMIT ? OFFSET ?
+            )
+            ORDER BY date ASC
+            '''
+            
+            params.extend([limit, offset])
+            self.cursor.execute(query, tuple(params))
+            messages = [dict(row) for row in self.cursor.fetchall()]
 
-                # --- NEW: Fetch content for replied messages ---
-                reply_ids = [m['reply_to_msg_id'] for m in messages if m.get('reply_to_msg_id')]
-                if reply_ids and chat_id:
-                    placeholders = ','.join('?' for _ in reply_ids)
-                    reply_query_params = reply_ids + [chat_id]
-                    reply_query = f"""
-                        SELECT message_id, text, sender_first_name, sender_username, sender_id 
-                        FROM messages 
-                        WHERE message_id IN ({placeholders}) AND chat_id = ?
-                    """
-                    self.cursor.execute(reply_query, reply_query_params)
-                    replied_messages_rows = self.cursor.fetchall()
-                    
-                    replied_map = {row['message_id']: dict(row) for row in replied_messages_rows}
-                    
-                    for msg in messages:
-                        if msg.get('reply_to_msg_id') in replied_map:
-                            original_msg = replied_map[msg['reply_to_msg_id']]
-                            sender_name = original_msg.get('sender_first_name') or original_msg.get('sender_username') or f"ID:{original_msg.get('sender_id')}"
-                            msg['reply_content'] = {
-                                'sender': sender_name,
-                                'text': original_msg.get('text', '')
-                            }
-                # --- END NEW ---
+            # --- NEW: Fetch content for replied messages ---
+            reply_ids = [m['reply_to_msg_id'] for m in messages if m.get('reply_to_msg_id')]
+            if reply_ids and chat_id:
+                placeholders = ','.join('?' for _ in reply_ids)
+                reply_query_params = reply_ids + [chat_id]
+                reply_query = f"""
+                    SELECT message_id, text, sender_first_name, sender_username, sender_id 
+                    FROM messages 
+                    WHERE message_id IN ({placeholders}) AND chat_id = ?
+                """
+                self.cursor.execute(reply_query, reply_query_params)
+                replied_messages_rows = self.cursor.fetchall()
                 
-                return messages
-            except Exception as e:
-                logger.error(f"获取消息列表失败: {e}")
-                return [] 
+                replied_map = {row['message_id']: dict(row) for row in replied_messages_rows}
+                
+                for msg in messages:
+                    if msg.get('reply_to_msg_id') in replied_map:
+                        original_msg = replied_map[msg['reply_to_msg_id']]
+                        sender_name = original_msg.get('sender_first_name') or original_msg.get('sender_username') or f"ID:{original_msg.get('sender_id')}"
+                        msg['reply_content'] = {
+                            'sender': sender_name,
+                            'text': original_msg.get('text', '')
+                        }
+            # --- END NEW ---
+            
+            return messages
+        except Exception as e:
+            logger.error(f"获取消息列表失败: {e}")
+            return [] 
 
     def get_messages_for_today(self, chat_id=None):
         """
@@ -225,32 +220,31 @@ class Database:
         Returns:
             str: 拼接好的所有消息文本。
         """
-        with self.lock: # 获取锁
-            try:
-                today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-                
-                query = """
+        try:
+            today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            
+            query = """
                 SELECT text FROM messages 
                 WHERE 
                     date(date) = ? 
                     AND text IS NOT NULL 
                     AND text != ''
                     AND (media_type IS NULL OR media_type != 'MessageMediaUnsupported')
-                """
-                params = [today]
-                
-                if chat_id:
-                    query += " AND chat_id = ?"
-                    params.append(chat_id)
-                
-                self.cursor.execute(query, tuple(params))
-                
-                all_texts = [row['text'] for row in self.cursor.fetchall()]
-                return " ".join(all_texts)
-                
-            except Exception as e:
-                logger.error(f"获取今日消息失败 (chat_id: {chat_id}): {e}")
-                return ""
+            """
+            params = [today]
+            
+            if chat_id:
+                query += " AND chat_id = ?"
+                params.append(chat_id)
+            
+            self.cursor.execute(query, tuple(params))
+            
+            all_texts = [row['text'] for row in self.cursor.fetchall()]
+            return " ".join(all_texts)
+            
+        except Exception as e:
+            logger.error(f"获取今日消息失败 (chat_id: {chat_id}): {e}")
+            return ""
 
     def get_messages_for_last_24_hours(self, chat_id=None):
         """
@@ -262,31 +256,30 @@ class Database:
         Returns:
             str: 拼接好的所有消息文本。
         """
-        with self.lock: # 获取锁
-            try:
-                # SQLite's datetime function works with ISO 8601 strings directly
-                query = """
+        try:
+            # SQLite's datetime function works with ISO 8601 strings directly
+            query = """
                 SELECT text FROM messages 
                 WHERE 
                     created_at >= datetime('now', '-24 hours')
                     AND text IS NOT NULL 
                     AND text != ''
                     AND (media_type IS NULL OR media_type != 'MessageMediaUnsupported')
-                """
-                params = []
-                
-                if chat_id:
-                    query += " AND chat_id = ?"
-                    params.append(chat_id)
-                
-                self.cursor.execute(query, tuple(params))
-                
-                all_texts = [row['text'] for row in self.cursor.fetchall()]
-                return " ".join(all_texts)
-                
-            except Exception as e:
-                logger.error(f"获取过去24小时消息失败 (chat_id: {chat_id}): {e}")
-                return ""
+            """
+            params = []
+            
+            if chat_id:
+                query += " AND chat_id = ?"
+                params.append(chat_id)
+            
+            self.cursor.execute(query, tuple(params))
+            
+            all_texts = [row['text'] for row in self.cursor.fetchall()]
+            return " ".join(all_texts)
+            
+        except Exception as e:
+            logger.error(f"获取过去24小时消息失败 (chat_id: {chat_id}): {e}")
+            return ""
 
     def get_chat_title(self, chat_id):
         """
@@ -298,12 +291,11 @@ class Database:
         Returns:
             str: 聊天标题，如果找不到则返回chat_id本身。
         """
-        with self.lock: # 获取锁
-            try:
-                query = "SELECT chat_title FROM messages WHERE chat_id = ? ORDER BY date DESC LIMIT 1"
-                self.cursor.execute(query, (chat_id,))
-                row = self.cursor.fetchone()
-                return row['chat_title'] if row and row['chat_title'] else str(chat_id)
-            except Exception as e:
-                logger.error(f"获取聊天标题失败 (chat_id: {chat_id}): {e}")
-                return str(chat_id) 
+        try:
+            query = "SELECT chat_title FROM messages WHERE chat_id = ? ORDER BY date DESC LIMIT 1"
+            self.cursor.execute(query, (chat_id,))
+            row = self.cursor.fetchone()
+            return row['chat_title'] if row and row['chat_title'] else str(chat_id)
+        except Exception as e:
+            logger.error(f"获取聊天标题失败 (chat_id: {chat_id}): {e}")
+            return str(chat_id) 
